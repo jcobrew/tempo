@@ -1,9 +1,9 @@
 {
-  "name": "reactive-timer",
+  "name": "tempo",
   "private": false,
   "version": "0.1.0",
-  "description": "A floating focus timer for macOS with contextual nudges and background music.",
-  "author": "Reactive Timer",
+  "description": "Tempo is a floating focus timer for macOS with contextual nudges and background music.",
+  "author": "Tempo",
   "license": "MIT",
   "type": "module",
   "main": "electron/main.cjs",
@@ -24,7 +24,7 @@
   },
   "build": {
     "appId": "com.reactivetimer.desktop",
-    "productName": "Reactive Timer",
+    "productName": "Tempo",
     "files": [
       "dist/**/*",
       "electron/**/*",

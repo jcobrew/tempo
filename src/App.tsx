@@ -53,6 +53,7 @@ type Preferences = {
   strictModeDefault: boolean;
   musicUrl: string;
   lastActiveTaskId: string | null;
+  themeMode: "mono" | "mist";
 };
 
 type StrictViolationState = {
@@ -101,6 +102,7 @@ const DEFAULT_PREFS: Preferences = {
   strictModeDefault: false,
   musicUrl: "https://soundcloud.com/wearetwolanes/two-lanes-essence",
   lastActiveTaskId: null,
+  themeMode: "mono",
 };
 
 const BROWSER_APPS = new Set([
@@ -310,7 +312,19 @@ function DockGlyph({
   kind,
   className,
 }: {
-  kind: "pin" | "nudges" | "strict" | "history" | "music";
+  kind:
+    | "pin"
+    | "nudges"
+    | "strict"
+    | "history"
+    | "music"
+    | "settings"
+    | "play"
+    | "pause"
+    | "open"
+    | "hide"
+    | "done"
+    | "stop";
   className?: string;
 }) {
   if (kind === "pin") {
@@ -354,6 +368,90 @@ function DockGlyph({
     );
   }
 
+  if (kind === "settings") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.8" />
+        <path
+          d="M12 4.6v1.8M12 17.6v1.8M19.4 12h-1.8M6.4 12H4.6M17.2 6.8l-1.3 1.3M8.1 15.9l-1.3 1.3M17.2 17.2l-1.3-1.3M8.1 8.1 6.8 6.8"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    );
+  }
+
+  if (kind === "play") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M9 7.2v9.6l7.6-4.8L9 7.2Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+
+  if (kind === "pause") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M9 7v10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M15 7v10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "open") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M13 6h5v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M18 6l-7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path
+          d="M16 13.5V17a1.5 1.5 0 0 1-1.5 1.5H7A1.5 1.5 0 0 1 5.5 17V9.5A1.5 1.5 0 0 1 7 8h3.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+
+  if (kind === "hide") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M7 7l10 10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M17 7L7 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (kind === "done") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path
+          d="M6.5 12.5 10 16l7.5-8"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+
+  if (kind === "stop") {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M7 7L17 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M17 7L7 17" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
@@ -385,7 +483,7 @@ function MainApp() {
 
   const [showHistory, setShowHistory] = useState(false);
   const [showAllTasks, setShowAllTasks] = useState(false);
-  const [showMusicSettings, setShowMusicSettings] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [reflectionOpen, setReflectionOpen] = useState(false);
   const [reflectionText, setReflectionText] = useState("");
   const [pendingHistoryEntry, setPendingHistoryEntry] = useState<HistoryEntry | null>(null);
@@ -545,7 +643,7 @@ function MainApp() {
     setLastPrompt("Stay with it. 12 min left. Keep going on Finish the onboarding draft.");
     setShowHistory(figmaState === "history");
     setShowAllTasks(false);
-    setShowMusicSettings(figmaState === "music");
+    setShowSettings(figmaState === "settings");
     setReflectionOpen(figmaState === "reflection");
     setReflectionText("The work moved forward, but I want 5 more min to tighten the copy.");
     setPendingHistoryEntry({
@@ -595,7 +693,11 @@ function MainApp() {
       },
       "hint-music": {
         title: "Music",
-        body: "Opens your soundtrack settings and the compact player drawer for the current session.",
+        body: "Shows or hides the compact player for the current session.",
+      },
+      "hint-settings": {
+        title: "Settings",
+        body: "Adjust the app theme and soundtrack behavior without changing the player view.",
       },
     };
 
@@ -606,11 +708,12 @@ function MainApp() {
         "hint-strict": 2,
         "hint-history": 3,
         "hint-music": 4,
+        "hint-settings": 5,
       }[figmaState] ?? 0;
 
       setHoverHint({
         ...hintMap[figmaState],
-        left: 112 + buttonIndex * 112,
+        left: 96 + buttonIndex * 96,
         top: window.innerHeight - 118,
       });
     }
@@ -676,7 +779,13 @@ function MainApp() {
       });
       widget.bind(playEvent, () => setMusicPlaying(true));
       widget.bind(pauseEvent, () => setMusicPlaying(false));
-      widget.bind(finishEvent, () => setMusicPlaying(false));
+      widget.bind(finishEvent, () => {
+        if (musicOpen) {
+          widget.play();
+          return;
+        }
+        setMusicPlaying(false);
+      });
     };
 
     setMusicReady(false);
@@ -913,6 +1022,18 @@ function MainApp() {
     updatePrefs({ notificationsEnabled: permission === "granted" });
   }
 
+  function toggleHistoryPanel() {
+    setShowHistory((current) => !current);
+  }
+
+  function toggleMusicPanel() {
+    setMusicOpen((current) => !current);
+  }
+
+  function toggleSettingsPanel() {
+    setShowSettings((current) => !current);
+  }
+
   function beginDrag(event: ReactPointerEvent<HTMLElement>) {
     if (!widgetRef.current || isDesktop) {
       return;
@@ -1130,6 +1251,48 @@ function MainApp() {
     setLastPrompt("Set a task and time to begin.");
   }
 
+  function completeSessionNow() {
+    if (!activeSession || !activeTask) {
+      return;
+    }
+
+    const focusedSeconds = Math.max(activeSession.plannedSeconds - activeSession.secondsLeft, 0);
+    appendHistory({
+      id: crypto.randomUUID(),
+      taskId: activeTask.id,
+      taskTitle: activeTask.title,
+      intention: activeTask.title,
+      plannedSeconds: activeSession.plannedSeconds,
+      focusedSeconds,
+      startedAt: activeSession.startedAt,
+      endedAt: Date.now(),
+      reflection: "",
+      neededMoreTime: false,
+      status: "completed",
+      strictModeEnabled: activeSession.strictModeEnabled,
+    });
+
+    updateTasks((current) =>
+      current.map((task) =>
+        task.id === activeTask.id
+          ? { ...task, status: "done", completedAt: Date.now() }
+          : task.status === "active"
+            ? { ...task, status: "pending" }
+            : task,
+      ),
+    );
+
+    setPendingHistoryEntry(null);
+    setReflectionOpen(false);
+    setReflectionText("");
+    setActiveSession(null);
+    setPhase("idle");
+    setTimeline([]);
+    pausedRemaining.current = 0;
+    firedMarkers.current = new Set();
+    setLastPrompt(`Marked ${activeTask.title} done early.`);
+  }
+
   function toggleMusicPlayback() {
     if (!soundCloudWidgetRef.current || !musicReady) {
       return;
@@ -1240,6 +1403,8 @@ function MainApp() {
         pauseSession();
       } else if (command === "resume" && phase === "paused") {
         resumeSession();
+      } else if (command === "done") {
+        completeSessionNow();
       } else if (command === "stop") {
         resetSession();
       } else if (command === "toggle-pin") {
@@ -1250,15 +1415,117 @@ function MainApp() {
 
   return (
     <main className={isDesktop ? "stage desktop-stage" : "stage"}>
-      <section className="lucid-shell" ref={widgetRef}>
+      <section
+        className={[
+          "lucid-shell",
+          musicOpen && soundCloudUrl ? "has-music-footer" : "",
+          prefs.themeMode === "mist" ? "theme-mist" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        ref={widgetRef}
+      >
         <header className="lucid-header" onPointerDown={beginDrag}>
           <div className="window-dots" aria-hidden="true">
             <span />
             <span />
             <span />
           </div>
-          <h1>Focus Queue</h1>
+          <h1>Tempo</h1>
         </header>
+
+        <section className="control-dock control-dock-top">
+          <button
+            className={prefs.alwaysOnTop ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            onClick={togglePin}
+            onPointerEnter={(event) =>
+              queueHoverHint(
+                event,
+                "Pin on top",
+                "Keeps the mini timer floating above your other apps while you work.",
+              )
+            }
+            onPointerLeave={clearHoverHint}
+          >
+            <DockGlyph className="chip-icon" kind="pin" />
+            <span className="chip-label">Pin</span>
+          </button>
+          <button
+            className={prefs.notificationsEnabled ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            onClick={toggleNotifications}
+            onPointerEnter={(event) =>
+              queueHoverHint(
+                event,
+                "Nudges",
+                "Enables gentle notifications and check-ins while your focus session is running.",
+              )
+            }
+            onPointerLeave={clearHoverHint}
+          >
+            <DockGlyph className="chip-icon" kind="nudges" />
+            <span className="chip-label">Nudges</span>
+          </button>
+          <button
+            className={prefs.strictModeDefault ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            onClick={() => updatePrefs({ strictModeDefault: !prefs.strictModeDefault })}
+            onPointerEnter={(event) =>
+              queueHoverHint(
+                event,
+                "Strict mode",
+                "Checks the frontmost app and site against your allowlist and escalates if you drift.",
+              )
+            }
+            onPointerLeave={clearHoverHint}
+          >
+            <DockGlyph className="chip-icon" kind="strict" />
+            <span className="chip-label">Strict</span>
+          </button>
+          <button
+            className={showHistory ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            onClick={toggleHistoryPanel}
+            onPointerEnter={(event) =>
+              queueHoverHint(
+                event,
+                "History",
+                "Shows saved focus sessions, reflections, and totals stored locally on this Mac.",
+              )
+            }
+            onPointerLeave={clearHoverHint}
+          >
+            <DockGlyph className="chip-icon" kind="history" />
+            <span className="chip-label">History</span>
+          </button>
+          <button
+            className={musicOpen ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            onClick={toggleMusicPanel}
+            onPointerEnter={(event) =>
+              queueHoverHint(
+                event,
+                "Music",
+                "Shows or hides the compact player for the current session.",
+              )
+            }
+            onPointerLeave={clearHoverHint}
+          >
+            <DockGlyph className="chip-icon" kind="music" />
+            <span className="chip-label">Music</span>
+          </button>
+          <button
+            className={showSettings ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            onClick={toggleSettingsPanel}
+            onPointerEnter={(event) =>
+              queueHoverHint(
+                event,
+                "Settings",
+                "Adjust the app theme and soundtrack behavior without changing the player view.",
+              )
+            }
+            onPointerLeave={clearHoverHint}
+          >
+            <DockGlyph className="chip-icon" kind="settings" />
+            <span className="chip-label">Settings</span>
+          </button>
+        </section>
 
         {hoverHint && (
           <div
@@ -1316,7 +1583,11 @@ function MainApp() {
             </article>
             <article className="hover-hint gallery-hint" style={{ left: "590px", top: "52px" }}>
               <strong>Music</strong>
-              <span>Opens your soundtrack settings and the compact player drawer for the current session.</span>
+              <span>Shows or hides the compact player for the current session.</span>
+            </article>
+            <article className="hover-hint gallery-hint" style={{ left: "702px", top: "52px" }}>
+              <strong>Settings</strong>
+              <span>Adjust the app theme and soundtrack behavior without changing the player view.</span>
             </article>
           </section>
         )}
@@ -1416,84 +1687,6 @@ function MainApp() {
           </div>
         </section>
 
-        <footer className="control-dock">
-          <button
-            className={prefs.alwaysOnTop ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
-            onClick={togglePin}
-            onPointerEnter={(event) =>
-              queueHoverHint(
-                event,
-                "Pin on top",
-                "Keeps the mini timer floating above your other apps while you work.",
-              )
-            }
-            onPointerLeave={clearHoverHint}
-          >
-            <DockGlyph className="chip-icon" kind="pin" />
-            <span className="chip-label">Pin</span>
-          </button>
-          <button
-            className={prefs.notificationsEnabled ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
-            onClick={toggleNotifications}
-            onPointerEnter={(event) =>
-              queueHoverHint(
-                event,
-                "Nudges",
-                "Enables gentle notifications and check-ins while your focus session is running.",
-              )
-            }
-            onPointerLeave={clearHoverHint}
-          >
-            <DockGlyph className="chip-icon" kind="nudges" />
-            <span className="chip-label">Nudges</span>
-          </button>
-          <button
-            className={prefs.strictModeDefault ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
-            onClick={() => updatePrefs({ strictModeDefault: !prefs.strictModeDefault })}
-            onPointerEnter={(event) =>
-              queueHoverHint(
-                event,
-                "Strict mode",
-                "Checks the frontmost app and site against your allowlist and escalates if you drift.",
-              )
-            }
-            onPointerLeave={clearHoverHint}
-          >
-            <DockGlyph className="chip-icon" kind="strict" />
-            <span className="chip-label">Strict</span>
-          </button>
-          <button
-            className="icon-chip dock-chip no-drag"
-            onClick={() => setShowHistory(true)}
-            onPointerEnter={(event) =>
-              queueHoverHint(
-                event,
-                "History",
-                "Shows saved focus sessions, reflections, and totals stored locally on this Mac.",
-              )
-            }
-            onPointerLeave={clearHoverHint}
-          >
-            <DockGlyph className="chip-icon" kind="history" />
-            <span className="chip-label">History</span>
-          </button>
-          <button
-            className="icon-chip dock-chip no-drag"
-            onClick={() => setShowMusicSettings((current) => !current)}
-            onPointerEnter={(event) =>
-              queueHoverHint(
-                event,
-                "Music",
-                "Opens your soundtrack settings and the compact player drawer for the current session.",
-              )
-            }
-            onPointerLeave={clearHoverHint}
-          >
-            <DockGlyph className="chip-icon" kind="music" />
-            <span className="chip-label">Music</span>
-          </button>
-        </footer>
-
         {musicOpen && soundCloudUrl && (
           <section className="music-controller">
             <div className="music-controller-copy">
@@ -1502,13 +1695,16 @@ function MainApp() {
             </div>
             <div className="music-controller-actions">
               <button className="mini-chip" onClick={toggleMusicPlayback} disabled={!musicReady}>
-                {musicPlaying ? "Pause" : "Play"}
+                <DockGlyph className="mini-chip-icon" kind={musicPlaying ? "pause" : "play"} />
+                <span>{musicPlaying ? "Pause" : "Play"}</span>
               </button>
               <button className="mini-chip" onClick={openMusicSource}>
-                Open
+                <DockGlyph className="mini-chip-icon" kind="open" />
+                <span>Open</span>
               </button>
               <button className="mini-chip" onClick={() => setMusicOpen(false)}>
-                Hide
+                <DockGlyph className="mini-chip-icon" kind="hide" />
+                <span>Hide</span>
               </button>
             </div>
             <iframe
@@ -1524,22 +1720,43 @@ function MainApp() {
           </section>
         )}
 
-        {showMusicSettings && (
-          <section className="music-settings floating-drawer">
-            <label>
-              Music URL
-              <input
-                value={prefs.musicUrl}
-                onChange={(event) => updatePrefs({ musicUrl: event.target.value })}
-                placeholder="SoundCloud track URL"
-              />
-            </label>
-            <button
-              className={prefs.playMusicOnStart ? "icon-chip is-active" : "icon-chip"}
-              onClick={() => updatePrefs({ playMusicOnStart: !prefs.playMusicOnStart })}
-            >
-              Autoplay on Start
-            </button>
+        {showSettings && (
+          <section className="settings-panel floating-drawer">
+            <div className="settings-group">
+              <span className="settings-label">App color</span>
+              <div className="settings-segment">
+                <button
+                  className={prefs.themeMode === "mono" ? "mini-chip is-active" : "mini-chip"}
+                  onClick={() => updatePrefs({ themeMode: "mono" })}
+                >
+                  Monochrome
+                </button>
+                <button
+                  className={prefs.themeMode === "mist" ? "mini-chip is-active" : "mini-chip"}
+                  onClick={() => updatePrefs({ themeMode: "mist" })}
+                >
+                  Mist
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <span className="settings-label">Music</span>
+              <label>
+                Music URL
+                <input
+                  value={prefs.musicUrl}
+                  onChange={(event) => updatePrefs({ musicUrl: event.target.value })}
+                  placeholder="SoundCloud track URL"
+                />
+              </label>
+              <button
+                className={prefs.playMusicOnStart ? "icon-chip is-active" : "icon-chip"}
+                onClick={() => updatePrefs({ playMusicOnStart: !prefs.playMusicOnStart })}
+              >
+                Autoplay on Start
+              </button>
+            </div>
           </section>
         )}
 
@@ -1717,7 +1934,7 @@ function MiniApp() {
   const ringCircumference = 2 * Math.PI * ringRadius;
   const ringOffset = ringCircumference * (1 - miniState.progressRatio);
 
-  function sendMiniControl(command: "pause" | "resume" | "stop" | "toggle-pin") {
+  function sendMiniControl(command: "pause" | "resume" | "stop" | "done" | "toggle-pin") {
     window.desktopBridge?.sendMiniControl(command);
   }
 
@@ -1753,10 +1970,16 @@ function MiniApp() {
               sendMiniControl(miniState.phase === "paused" ? "resume" : "pause")
             }
           >
-            <span aria-hidden="true">{miniState.phase === "paused" ? "▶" : "Ⅱ"}</span>
+            <DockGlyph
+              className="mini-fab-icon"
+              kind={miniState.phase === "paused" ? "play" : "pause"}
+            />
+          </button>
+          <button className="mini-fab mini-fab-done" onClick={() => sendMiniControl("done")}>
+            <DockGlyph className="mini-fab-icon" kind="done" />
           </button>
           <button className="mini-fab" onClick={() => sendMiniControl("stop")}>
-            <span aria-hidden="true">✕</span>
+            <DockGlyph className="mini-fab-icon" kind="stop" />
           </button>
           <button
             className={miniState.pinned ? "mini-fab is-active" : "mini-fab"}

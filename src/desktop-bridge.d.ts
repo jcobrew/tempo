@@ -25,7 +25,7 @@ declare global {
     pinned: boolean;
   };
 
-  type MiniCommand = "pause" | "resume" | "stop" | "toggle-pin";
+  type MiniCommand = "pause" | "resume" | "stop" | "done" | "toggle-pin";
 
   interface Window {
     desktopBridge?: {
