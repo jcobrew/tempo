@@ -1,0 +1,70 @@
+{
+  "name": "reactive-timer",
+  "private": false,
+  "version": "0.1.0",
+  "description": "A floating focus timer for macOS with contextual nudges and background music.",
+  "author": "Reactive Timer",
+  "license": "MIT",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite --host 127.0.0.1 --port 4315 --strictPort",
+    "dev:electron": "wait-on tcp:4315 && ELECTRON_START_URL=http://127.0.0.1:4315 electron .",
+    "dev:desktop:live": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
+    "dev:desktop": "npm run desktop:prod",
+    "build:web": "tsc -b && vite build",
+    "build": "npm run build:web",
+    "desktop:prod": "npm run build:web && electron .",
+    "pack:mac": "npm run build:web && electron-builder --mac --dir",
+    "dist:mac": "npm run build:web && electron-builder --mac",
+    "dist:mac:arm64": "npm run build:web && electron-builder --mac --arm64",
+    "dist:mac:x64": "npm run build:web && electron-builder --mac --x64",
+    "preview": "vite preview"
+  },
+  "build": {
+    "appId": "com.reactivetimer.desktop",
+    "productName": "Reactive Timer",
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "afterSign": "scripts/notarize.cjs"
+  },
+  "dependencies": {
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@electron/notarize": "^3.1.1",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^5.0.4",
+    "concurrently": "^9.2.1",
+    "electron": "^40.8.0",
+    "electron-builder": "^26.8.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5",
+    "wait-on": "^9.0.4"
+  }
+}
