@@ -8,7 +8,7 @@ npm run pack:mac
 
 Output app bundle:
 
-- `release/mac-arm64/Reactive Timer.app`
+- `release/mac-arm64/Tempo.app`
 
 ## 2) Build distributable artifacts (DMG + ZIP)
 
@@ -18,8 +18,8 @@ npm run dist:mac:arm64
 
 Output artifacts:
 
-- `release/Reactive Timer-<version>-arm64.dmg`
-- `release/Reactive Timer-<version>-arm64.zip`
+- `release/Tempo-<version>-arm64.dmg`
+- `release/Tempo-<version>-arm64-mac.zip`
 
 ## 3) Enable notarization (recommended for end users)
 

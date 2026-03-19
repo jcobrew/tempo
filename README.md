@@ -1,6 +1,6 @@
-# Reactive Timer
+# Tempo
 
-Reactive Timer is a small macOS desktop app for focused work.
+Tempo is a small macOS desktop app for focused work.
 
 It combines:
 - a lightweight focus queue,
@@ -88,7 +88,7 @@ If you share this build tonight, ask testers for:
 
 ## Privacy
 
-Reactive Timer is built around local-first storage.
+Tempo is built around local-first storage.
 
 Current behavior:
 - task history is stored locally
@@ -107,4 +107,4 @@ If you contribute, focus on:
 
 ## Tonight's Shipping Guide
 
-Use the checklist in [RELEASE_TONIGHT.md](/Users/eigengrau/Desktop/reactive%20timer/RELEASE_TONIGHT.md).
+Use the checklist in [RELEASE_TONIGHT.md](/Users/eigengrau/Desktop/tempo/RELEASE_TONIGHT.md).

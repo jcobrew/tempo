@@ -111,7 +111,7 @@ function wireNavigation(window) {
   window.webContents.on("did-fail-load", (_event, errorCode, errorDesc, failedUrl) => {
     window.loadURL(
       `data:text/html;charset=utf-8,${encodeURIComponent(
-        `<h3>Reactive Timer failed to load</h3><p>${errorCode}: ${errorDesc}</p><p>${failedUrl}</p>`,
+        `<h3>Tempo failed to load</h3><p>${errorCode}: ${errorDesc}</p><p>${failedUrl}</p>`,
       )}`,
     );
   });
@@ -143,7 +143,7 @@ function createMainWindow() {
     resizable: false,
     alwaysOnTop: false,
     autoHideMenuBar: true,
-    title: "Reactive Timer",
+    title: "Tempo",
     backgroundColor: "#d6d6d6",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     webPreferences: {
@@ -215,7 +215,7 @@ function createMiniWindow() {
 
 app.whenReady().then(() => {
   app.setAboutPanelOptions({
-    applicationName: "Reactive Timer",
+    applicationName: "Tempo",
     applicationVersion: app.getVersion(),
     version: app.getVersion(),
   });

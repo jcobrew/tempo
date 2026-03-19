@@ -4,7 +4,7 @@ Use this exact prompt when sending the build to testers:
 
 ## Short Version
 
-What did you use Reactive Timer for, what felt useful, what felt awkward, and what should be improved first?
+What did you use Tempo for, what felt useful, what felt awkward, and what should be improved first?
 
 ## Better Version
 

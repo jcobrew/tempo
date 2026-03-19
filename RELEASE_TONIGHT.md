@@ -2,7 +2,7 @@
 
 ## Goal
 
-Get Reactive Timer into users' hands tonight with:
+Get Tempo into users' hands tonight with:
 - a downloadable macOS build,
 - a public repository people can inspect or improve,
 - a simple feedback loop that produces useful product signal fast.
@@ -16,8 +16,8 @@ npm run dist:mac:arm64
 ```
 
 Expected output:
-- `release/Reactive Timer-0.1.0-arm64.dmg`
-- `release/Reactive Timer-0.1.0-arm64.zip`
+- `release/Tempo-0.1.0-arm64.dmg`
+- `release/Tempo-0.1.0-arm64-mac.zip`
 
 If notarization credentials are not configured, the build can still complete, but users may see extra macOS warnings on first open.
 
@@ -32,7 +32,7 @@ Fastest path:
    - where to send feedback.
 
 Best public repo path:
-1. Create a new GitHub repo named `reactive-timer`
+1. Create a new GitHub repo named `tempo`
 2. Push this folder
 3. Create a GitHub Release
 4. Attach the `.dmg` and `.zip`
@@ -59,7 +59,7 @@ git push -u origin main
 
 Suggested short message:
 
-> I built a small macOS focus app called Reactive Timer. It gives you a floating timer, nudges while you work, and local-only session history. This is an early build and I want honest feedback on what feels useful, confusing, or not worth keeping.
+> I built a small macOS focus app called Tempo. It gives you a floating timer, nudges while you work, and local-only session history. This is an early build and I want honest feedback on what feels useful, confusing, or not worth keeping.
 
 Ask them to answer:
 1. What task did you try it with?

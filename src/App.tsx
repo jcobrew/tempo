@@ -1542,21 +1542,21 @@ function MainApp() {
             <article className="notification-card">
               <div className="notification-mark">RT</div>
               <div className="notification-copy">
-                <strong>Reactive Timer</strong>
+                <strong>Tempo</strong>
                 <span>Stay with it. Keep going on Finish the onboarding draft.</span>
               </div>
             </article>
             <article className="notification-card">
               <div className="notification-mark">RT</div>
               <div className="notification-copy">
-                <strong>Reactive Timer</strong>
+                <strong>Tempo</strong>
                 <span>Time is running out. Do you need 5 more min for the onboarding draft?</span>
               </div>
             </article>
             <article className="notification-card">
               <div className="notification-mark">RT</div>
               <div className="notification-copy">
-                <strong>Reactive Timer</strong>
+                <strong>Tempo</strong>
                 <span>Strict mode: return to Figma, VS Code, or your allowed sites.</span>
               </div>
             </article>
