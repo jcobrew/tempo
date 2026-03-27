@@ -7,6 +7,9 @@ Get Tempo into users' hands tonight with:
 - a public repository people can inspect or improve,
 - a simple feedback loop that produces useful product signal fast.
 
+For the current strict beta build, there is one extra requirement:
+- the Tempo backend and Supabase auth setup must be live before testers can use screenshot strict mode
+
 ## 1. Build A Shareable App
 
 From the project root:
@@ -59,7 +62,7 @@ git push -u origin main
 
 Suggested short message:
 
-> I built a small macOS focus app called Tempo. It gives you a floating timer, nudges while you work, and local-only session history. This is an early build and I want honest feedback on what feels useful, confusing, or not worth keeping.
+> I built a small macOS focus app called Tempo. It gives you a floating timer, nudges while you work, local session history, and an opt-in screenshot strict beta. This is an early build and I want honest feedback on what feels useful, confusing, or not worth keeping.
 
 Ask them to answer:
 1. What task did you try it with?
@@ -86,7 +89,7 @@ Say this clearly:
 - macOS only
 - early build
 - UI still evolving
-- strict mode is early and best-effort
+- screenshot strict beta is opt-in and early
 - local-first privacy approach
 
 ## 7. Nice-To-Have But Not Required Tonight

@@ -6,7 +6,7 @@ It combines:
 - a lightweight focus queue,
 - a floating mini timer,
 - contextual nudges while a task is active,
-- optional strict mode with allowlisted apps/sites,
+- optional screenshot-based strict mode beta,
 - local-only history and reflections.
 
 The current build is optimized for quick local testing and early feedback from macOS users.
@@ -19,7 +19,7 @@ The current build is optimized for quick local testing and early feedback from m
 - Show supportive nudges while you work
 - Offer extra time near the end of a session
 - Save focus history locally on-device
-- Optionally enable strict mode to watch for context drift
+- Optionally enable strict beta to analyze periodic screenshots for context drift
 
 ## Current Status
 
@@ -35,7 +35,7 @@ What is solid:
 What is still evolving:
 - Visual polish across all states
 - Music integration UX
-- Strict mode reliability across different browser/app combinations
+- Strict beta accuracy, latency, and trust UX
 - Release packaging polish like app icon and notarized distribution
 
 ## Run Locally
@@ -44,12 +44,21 @@ Requirements:
 - Node.js 20+ recommended
 - macOS for the desktop build
 
-Install and run:
+Install and run the desktop app:
 
 ```bash
 npm install
+cd backend && npm install && cd ..
+cp .env.example .env
+cp backend/.env.example backend/.env
 npm run dev:desktop
 ```
+
+The screenshot strict beta requires:
+- `VITE_TEMPO_API_BASE_URL`
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+- backend env vars in `backend/.env`
 
 Build the app:
 
@@ -93,7 +102,12 @@ Tempo is built around local-first storage.
 Current behavior:
 - task history is stored locally
 - reflections are stored locally
-- strict mode does not store screenshots or OCR logs
+- strict beta screenshots are captured only during active strict sessions
+- strict beta screenshots are sent to the Tempo backend for Gemini analysis
+- screenshots are not retained by default
+- the Gemini API key never ships in the app
+
+Read the stricter disclosure in [PRIVACY.md](/Users/eigengrau/Desktop/tempo/PRIVACY.md).
 
 ## Open Source
 
@@ -103,7 +117,7 @@ If you contribute, focus on:
 - UI clarity
 - smaller, reliable iterations
 - macOS-specific polish
-- strict mode guardrails and trust
+- strict beta guardrails and trust
 
 ## Tonight's Shipping Guide
 

@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, shell, systemPreferences } = require("electron");
+const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
@@ -15,9 +16,27 @@ let latestMiniState = {
   progressRatio: 0,
   phase: "idle",
   pinned: true,
+  themeMode: "mono",
+  appearance: "light",
 };
 
+function applyMiniWindowPinState() {
+  if (!miniWindow || miniWindow.isDestroyed()) {
+    return;
+  }
+
+  if (latestMiniState.pinned) {
+    miniWindow.setAlwaysOnTop(true, "screen-saver");
+    miniWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    return;
+  }
+
+  miniWindow.setAlwaysOnTop(false);
+  miniWindow.setVisibleOnAllWorkspaces(false);
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
+const visionHelperPath = path.join(__dirname, "bin", "strict-vision-capture");
 
 if (!gotTheLock) {
   app.quit();
@@ -85,6 +104,76 @@ async function getActiveContext() {
   return { ...context, url };
 }
 
+function isAppStoreBuild() {
+  return Boolean(process.mas);
+}
+
+function hasVisionHelper() {
+  return process.platform === "darwin" && fs.existsSync(visionHelperPath);
+}
+
+async function runVisionHelper(args) {
+  const { stdout } = await execFileAsync(visionHelperPath, args, {
+    maxBuffer: 25 * 1024 * 1024,
+  });
+  return JSON.parse(stdout.trim());
+}
+
+async function getScreenCaptureStatus() {
+  if (process.platform !== "darwin") {
+    return "unsupported";
+  }
+
+  if (hasVisionHelper()) {
+    try {
+      const payload = await runVisionHelper(["check-permission"]);
+      if (payload?.status) {
+        return payload.status;
+      }
+    } catch {
+      // Fall through to Electron status.
+    }
+  }
+
+  return systemPreferences.getMediaAccessStatus("screen");
+}
+
+async function requestScreenCapturePermission() {
+  if (process.platform !== "darwin") {
+    return "unsupported";
+  }
+
+  if (hasVisionHelper()) {
+    try {
+      const payload = await runVisionHelper(["request-permission"]);
+      if (payload?.status) {
+        return payload.status;
+      }
+    } catch {
+      return "denied";
+    }
+  }
+
+  return "unknown";
+}
+
+async function captureVisionFrame(options = {}) {
+  if (process.platform !== "darwin") {
+    throw new Error("Vision capture is only supported on macOS.");
+  }
+  if (isAppStoreBuild()) {
+    throw new Error("Vision capture is not available in the App Store build.");
+  }
+  if (!hasVisionHelper()) {
+    throw new Error("Strict vision helper is missing.");
+  }
+
+  const maxDimension = String(options.maxDimension ?? 1280);
+  const format = options.format === "png" ? "png" : "jpeg";
+  const quality = String(typeof options.quality === "number" ? options.quality : 0.72);
+  return runVisionHelper(["capture", "--max-dimension", maxDimension, "--format", format, "--quality", quality]);
+}
+
 function getRendererUrl(mode) {
   const startUrl = process.env.ELECTRON_START_URL;
   if (startUrl) {
@@ -134,18 +223,19 @@ function createMainWindow() {
   }
 
   mainWindow = new BrowserWindow({
-    width: 680,
-    height: 500,
-    minWidth: 680,
-    minHeight: 500,
-    maxWidth: 680,
-    maxHeight: 500,
+    width: 620,
+    height: 430,
+    minWidth: 620,
+    minHeight: 430,
+    maxWidth: 620,
+    maxHeight: 430,
     resizable: false,
     alwaysOnTop: false,
     autoHideMenuBar: true,
     title: "Tempo",
     backgroundColor: "#d6d6d6",
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
+    trafficLightPosition: process.platform === "darwin" ? { x: 18, y: 18 } : undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -175,12 +265,12 @@ function createMiniWindow() {
   }
 
   miniWindow = new BrowserWindow({
-    width: 252,
-    height: 312,
-    minWidth: 252,
-    minHeight: 312,
-    maxWidth: 252,
-    maxHeight: 312,
+    width: 312,
+    height: 420,
+    minWidth: 312,
+    minHeight: 420,
+    maxWidth: 312,
+    maxHeight: 420,
     resizable: false,
     frame: false,
     transparent: true,
@@ -196,8 +286,7 @@ function createMiniWindow() {
     },
   });
 
-  miniWindow.setAlwaysOnTop(latestMiniState.pinned, "screen-saver");
-  miniWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  applyMiniWindowPinState();
   wireNavigation(miniWindow);
   loadRenderer(miniWindow, "mini");
   miniWindow.once("ready-to-show", () => {
@@ -220,23 +309,24 @@ app.whenReady().then(() => {
     version: app.getVersion(),
   });
 
+  ipcMain.handle("desktop:get-capabilities", async () => ({
+    screenshotStrictModeAvailable: process.platform === "darwin" && !isAppStoreBuild() && hasVisionHelper(),
+    screenRecordingPermissionStatus: await getScreenCaptureStatus(),
+    appStoreBuild: isAppStoreBuild(),
+  }));
+
   ipcMain.handle("window:get-mini-always-on-top", () => miniWindow?.isAlwaysOnTop() ?? latestMiniState.pinned);
 
   ipcMain.handle("window:set-mini-always-on-top", (_event, shouldPin) => {
     latestMiniState.pinned = Boolean(shouldPin);
-    if (miniWindow && !miniWindow.isDestroyed()) {
-      miniWindow.setAlwaysOnTop(latestMiniState.pinned, "screen-saver");
-    }
+    applyMiniWindowPinState();
     sendMiniState();
     return latestMiniState.pinned;
   });
 
-  ipcMain.handle("strict:get-screen-permission-status", () => {
-    if (process.platform !== "darwin") {
-      return "unsupported";
-    }
-    return systemPreferences.getMediaAccessStatus("screen");
-  });
+  ipcMain.handle("strict:get-screen-permission-status", () => getScreenCaptureStatus());
+
+  ipcMain.handle("strict:request-screen-permission", () => requestScreenCapturePermission());
 
   ipcMain.handle("strict:open-screen-permission-settings", () => {
     if (process.platform !== "darwin") {
@@ -248,7 +338,7 @@ app.whenReady().then(() => {
     return true;
   });
 
-  ipcMain.handle("strict:get-active-context", async () => getActiveContext());
+  ipcMain.handle("strict:capture-vision-frame", (_event, options) => captureVisionFrame(options));
 
   ipcMain.on("mini:update-state", (_event, state) => {
     latestMiniState = { ...latestMiniState, ...state };

@@ -2,7 +2,7 @@
   "name": "tempo",
   "private": false,
   "version": "0.1.0",
-  "description": "Tempo is a floating focus timer for macOS with contextual nudges and background music.",
+  "description": "Tempo is a macOS focus app with a floating mini timer, local history, and opt-in screenshot strict mode beta.",
   "author": "Tempo",
   "license": "MIT",
   "type": "module",
@@ -10,23 +10,26 @@
   "scripts": {
     "dev": "vite",
     "dev:web": "vite --host 127.0.0.1 --port 4315 --strictPort",
-    "dev:electron": "wait-on tcp:4315 && ELECTRON_START_URL=http://127.0.0.1:4315 electron .",
-    "dev:desktop:live": "concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
-    "dev:desktop": "npm run desktop:prod",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:electron": "wait-on tcp:4315 tcp:8080 && ELECTRON_START_URL=http://127.0.0.1:4315 electron .",
+    "build:vision-helper": "node electron/scripts/build-vision-helper.mjs",
+    "dev:desktop:live": "npm run build:vision-helper && concurrently -k \"npm:dev:web\" \"npm:dev:electron\"",
+    "dev:desktop": "npm run build:vision-helper && concurrently -k \"npm:dev:backend\" \"npm:dev:web\" \"npm:dev:electron\"",
     "build:web": "tsc -b && vite build",
-    "build": "npm run build:web",
-    "desktop:prod": "npm run build:web && electron .",
-    "pack:mac": "npm run build:web && electron-builder --mac --dir",
-    "dist:mac": "npm run build:web && electron-builder --mac",
-    "dist:mac:arm64": "npm run build:web && electron-builder --mac --arm64",
-    "dist:mac:x64": "npm run build:web && electron-builder --mac --x64",
+    "build": "npm run build:vision-helper && npm run build:web",
+    "desktop:prod": "npm run build:vision-helper && npm run build:web && electron .",
+    "pack:mac": "npm run build:vision-helper && npm run build:web && electron-builder --mac --dir",
+    "dist:mac": "npm run build:vision-helper && npm run build:web && electron-builder --mac",
+    "dist:mac:arm64": "npm run build:vision-helper && npm run build:web && electron-builder --mac --arm64",
+    "dist:mac:x64": "npm run build:vision-helper && npm run build:web && electron-builder --mac --x64",
     "preview": "vite preview"
   },
   "build": {
-    "appId": "com.reactivetimer.desktop",
+    "appId": "com.jcobrew.tempo",
     "productName": "Tempo",
     "files": [
       "dist/**/*",
+      "electron/bin/**/*",
       "electron/**/*",
       "package.json"
     ],
@@ -37,6 +40,7 @@
     },
     "mac": {
       "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
       "target": [
         "dmg",
         "zip"
@@ -52,6 +56,7 @@
     "afterSign": "scripts/notarize.cjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

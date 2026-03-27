@@ -15,6 +15,26 @@ declare global {
     url: string;
   };
 
+  type DesktopCapabilities = {
+    screenshotStrictModeAvailable: boolean;
+    screenRecordingPermissionStatus: ScreenPermissionStatus;
+    appStoreBuild: boolean;
+  };
+
+  type VisionCaptureOptions = {
+    maxDimension?: number;
+    format?: "jpeg" | "png";
+    quality?: number;
+  };
+
+  type VisionCapturePayload = {
+    ok: boolean;
+    mimeType: string;
+    imageBase64: string;
+    width: number;
+    height: number;
+  };
+
   type MiniWindowState = {
     active: boolean;
     taskTitle: string;
@@ -23,6 +43,8 @@ declare global {
     progressRatio: number;
     phase: "idle" | "running" | "paused" | "completed";
     pinned: boolean;
+    themeMode: "mono" | "mist";
+    appearance: "light" | "dark";
   };
 
   type MiniCommand = "pause" | "resume" | "stop" | "done" | "toggle-pin";
@@ -30,11 +52,13 @@ declare global {
   interface Window {
     desktopBridge?: {
       isDesktop: boolean;
+      getDesktopCapabilities: () => Promise<DesktopCapabilities>;
       getMiniAlwaysOnTop: () => Promise<boolean>;
       setMiniAlwaysOnTop: (shouldPin: boolean) => Promise<boolean>;
       getScreenPermissionStatus: () => Promise<ScreenPermissionStatus>;
+      requestScreenPermission: () => Promise<ScreenPermissionStatus>;
       openScreenPermissionSettings: () => Promise<boolean>;
-      getActiveContext: () => Promise<DesktopActiveContext>;
+      captureVisionFrame: (options?: VisionCaptureOptions) => Promise<VisionCapturePayload>;
       updateMiniState: (state: MiniWindowState) => void;
       getMiniState: () => Promise<MiniWindowState>;
       sendMiniControl: (command: MiniCommand) => void;

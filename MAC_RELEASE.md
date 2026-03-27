@@ -21,6 +21,8 @@ Output artifacts:
 - `release/Tempo-<version>-arm64.dmg`
 - `release/Tempo-<version>-arm64-mac.zip`
 
+If you want screenshot strict beta to work in the shipped app, make sure the packaged build also has the correct frontend env vars at build time and that the backend is already deployed.
+
 ## 3) Enable notarization (recommended for end users)
 
 Set environment variables before `dist` builds:
@@ -44,3 +46,4 @@ Notarization is skipped automatically if these variables are not present.
 - Add app icon at `build/icon.icns` and configure it in the `build.mac.icon` field in `package.json`.
 - Replace placeholder author and app metadata in `package.json`.
 - Test install/open flow on a clean macOS user account.
+- Verify strict beta onboarding, sign-in, and screen-permission flow on a clean Mac account.

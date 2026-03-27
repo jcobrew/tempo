@@ -1,8 +1,23 @@
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
+import { getAccessToken, supabaseClient } from "./lib/supabase";
+import {
+  analyzeStrictVisionFrame,
+  createStrictVisionSession,
+  getStrictVisionBackendHealth,
+  hasStrictVisionBackend,
+  sendStrictVisionEvent,
+  type StrictVisionAnalysis,
+  type StrictVisionClassification,
+} from "./lib/strict-vision";
 
 type Phase = "idle" | "running" | "paused" | "completed";
 type TaskStatus = "pending" | "active" | "done";
 type HistoryStatus = "completed" | "interrupted";
+type StrictModeKind = "allowlist" | "vision";
+type ThemeMode = "mono" | "mist";
+type AppearanceMode = "auto" | "light" | "dark";
+type ResolvedAppearance = "light" | "dark";
 
 type Task = {
   id: string;
@@ -15,8 +30,8 @@ type Task = {
 
 type StrictModeSessionConfig = {
   enabled: boolean;
-  allowedApps: string[];
-  allowedSites: string[];
+  kind: StrictModeKind;
+  sessionId?: string | null;
 };
 
 type FocusSession = {
@@ -25,8 +40,10 @@ type FocusSession = {
   plannedSeconds: number;
   secondsLeft: number;
   strictModeEnabled: boolean;
-  allowedApps: string[];
-  allowedSites: string[];
+  strictModeKind: StrictModeKind;
+  strictSessionId: string | null;
+  lastAnalysisResult: StrictVisionAnalysis | null;
+  analysisCooldownUntil: number;
 };
 
 type HistoryEntry = {
@@ -53,12 +70,21 @@ type Preferences = {
   strictModeDefault: boolean;
   musicUrl: string;
   lastActiveTaskId: string | null;
-  themeMode: "mono" | "mist";
+  themeMode: ThemeMode;
+  appearanceMode: AppearanceMode;
 };
 
 type StrictViolationState = {
   consecutive: number;
   lastMessageAt: number;
+  recentClassifications: StrictVisionClassification[];
+};
+
+type StrictIntroState = {
+  consentChecked: boolean;
+  error: string | null;
+  submitting: boolean;
+  backendMessage: string | null;
 };
 
 type HoverHint = {
@@ -81,6 +107,8 @@ type MiniWindowState = {
   progressRatio: number;
   phase: Phase;
   pinned: boolean;
+  themeMode: ThemeMode;
+  appearance: ResolvedAppearance;
 };
 
 type SoundCloudWidget = {
@@ -103,16 +131,8 @@ const DEFAULT_PREFS: Preferences = {
   musicUrl: "https://soundcloud.com/wearetwolanes/two-lanes-essence",
   lastActiveTaskId: null,
   themeMode: "mono",
+  appearanceMode: "auto",
 };
-
-const BROWSER_APPS = new Set([
-  "Google Chrome",
-  "Safari",
-  "Arc",
-  "Brave Browser",
-  "Microsoft Edge",
-  "Firefox",
-]);
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -226,16 +246,14 @@ function createNudge(taskTitle: string, progress: number, remainingSeconds: numb
   };
 }
 
-function parseCsvList(value: string) {
-  return value
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function matchAny(haystack: string, needles: string[]) {
-  const lowered = haystack.toLowerCase();
-  return needles.some((item) => lowered.includes(item.toLowerCase()));
+function formatConfidenceLabel(confidence: number) {
+  if (confidence >= 0.82) {
+    return "high confidence";
+  }
+  if (confidence >= 0.58) {
+    return "medium confidence";
+  }
+  return "low confidence";
 }
 
 function getSoundCloudEmbedUrl(rawUrl: string, autoplay: boolean) {
@@ -288,6 +306,19 @@ function saveLocal<T>(key: string, value: T) {
   } catch {
     // Ignore storage failures and keep runtime state.
   }
+}
+
+function resolveAppearancePreference(
+  appearanceMode: AppearanceMode,
+  prefersDarkMode: boolean,
+): ResolvedAppearance {
+  if (appearanceMode === "light") {
+    return "light";
+  }
+  if (appearanceMode === "dark") {
+    return "dark";
+  }
+  return prefersDarkMode ? "dark" : "light";
 }
 
 function playAlertTone(level: number) {
@@ -371,13 +402,12 @@ function DockGlyph({
   if (kind === "settings") {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.8" />
-        <path
-          d="M12 4.6v1.8M12 17.6v1.8M19.4 12h-1.8M6.4 12H4.6M17.2 6.8l-1.3 1.3M8.1 15.9l-1.3 1.3M17.2 17.2l-1.3-1.3M8.1 8.1 6.8 6.8"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-        />
+        <path d="M7 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M7 12h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <path d="M7 18h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        <circle cx="10" cy="6" r="2.2" fill="white" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="14" cy="12" r="2.2" fill="white" stroke="currentColor" strokeWidth="1.8" />
+        <circle cx="9" cy="18" r="2.2" fill="white" stroke="currentColor" strokeWidth="1.8" />
       </svg>
     );
   }
@@ -472,7 +502,10 @@ function MainApp() {
   const [history, setHistory] = useState<HistoryEntry[]>(
     () => loadLocal(HISTORY_STORAGE_KEY, [] as HistoryEntry[]),
   );
-  const [prefs, setPrefs] = useState<Preferences>(() => loadLocal(PREFS_STORAGE_KEY, DEFAULT_PREFS));
+  const [prefs, setPrefs] = useState<Preferences>(() => ({
+    ...DEFAULT_PREFS,
+    ...loadLocal<Partial<Preferences>>(PREFS_STORAGE_KEY, {}),
+  }));
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [inputLine, setInputLine] = useState("");
@@ -490,19 +523,41 @@ function MainApp() {
 
   const [strictSetupOpen, setStrictSetupOpen] = useState(false);
   const [strictSetupTaskId, setStrictSetupTaskId] = useState<string | null>(null);
-  const [strictAllowedAppsDraft, setStrictAllowedAppsDraft] = useState(
-    prefs.recentAllowedApps.join(", "),
-  );
-  const [strictAllowedSitesDraft, setStrictAllowedSitesDraft] = useState(
-    prefs.recentAllowedSites.join(", "),
-  );
   const [screenPermissionStatus, setScreenPermissionStatus] = useState("unknown");
   const [hoverHint, setHoverHint] = useState<HoverHint | null>(null);
+  const [desktopCapabilities, setDesktopCapabilities] = useState<DesktopCapabilities>({
+    screenshotStrictModeAvailable: false,
+    screenRecordingPermissionStatus: "unknown",
+    appStoreBuild: false,
+  });
+  const [authSession, setAuthSession] = useState<Session | null>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [strictIntroState, setStrictIntroState] = useState<StrictIntroState>({
+    consentChecked: false,
+    error: null,
+    submitting: false,
+    backendMessage: null,
+  });
+  const [strictBackendHealth, setStrictBackendHealth] = useState<{
+    reachable: boolean;
+    message: string | null;
+  }>({
+    reachable: false,
+    message: hasStrictVisionBackend() ? "Checking Tempo backend..." : "Tempo backend URL is not configured.",
+  });
 
   const [musicOpen, setMusicOpen] = useState(false);
   const [musicAutoplayNonce, setMusicAutoplayNonce] = useState(0);
   const [musicReady, setMusicReady] = useState(false);
   const [musicPlaying, setMusicPlaying] = useState(false);
+  const [prefersDarkMode, setPrefersDarkMode] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      : false,
+  );
 
   const tickStartedAt = useRef<number | null>(null);
   const pausedRemaining = useRef(0);
@@ -511,6 +566,7 @@ function MainApp() {
   const strictViolation = useRef<StrictViolationState>({
     consecutive: 0,
     lastMessageAt: 0,
+    recentClassifications: [],
   });
 
   const widgetRef = useRef<HTMLDivElement | null>(null);
@@ -543,6 +599,12 @@ function MainApp() {
           1,
         )
       : 0;
+  const resolvedAppearance = resolveAppearancePreference(prefs.appearanceMode, prefersDarkMode);
+  const strictVisionReady =
+    isDesktop &&
+    desktopCapabilities.screenshotStrictModeAvailable &&
+    hasStrictVisionBackend() &&
+    strictBackendHealth.reachable;
 
   useEffect(() => {
     if (isFigmaPreview) {
@@ -564,6 +626,29 @@ function MainApp() {
     }
     saveLocal(PREFS_STORAGE_KEY, prefs);
   }, [isFigmaPreview, prefs]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncPreference = (event?: MediaQueryListEvent) => {
+      setPrefersDarkMode(event?.matches ?? mediaQuery.matches);
+    };
+
+    syncPreference();
+    mediaQuery.addEventListener("change", syncPreference);
+    return () => mediaQuery.removeEventListener("change", syncPreference);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("theme-mist", prefs.themeMode === "mist");
+    document.body.classList.toggle("theme-dark", resolvedAppearance === "dark");
+    return () => {
+      document.body.classList.remove("theme-mist", "theme-dark");
+    };
+  }, [prefs.themeMode, resolvedAppearance]);
 
   useEffect(() => {
     if (!figmaState) {
@@ -632,8 +717,16 @@ function MainApp() {
       plannedSeconds: 25 * 60,
       secondsLeft: 11 * 60 + 24,
       strictModeEnabled: figmaState === "strict",
-      allowedApps: ["Figma", "VS Code", "Notes"],
-      allowedSites: ["figma.com", "github.com"],
+      strictModeKind: "vision",
+      strictSessionId: "preview-session",
+      lastAnalysisResult: {
+        classification: "uncertain",
+        reason: "Looks like a transition between focus screens.",
+        confidence: 0.58,
+        suggestedNudge: "Return to the onboarding draft if you are done switching.",
+        nextRecommendedCaptureDelayMs: 9000,
+      },
+      analysisCooldownUntil: now + 9000,
     };
 
     setTasks(sampleTasks);
@@ -662,9 +755,18 @@ function MainApp() {
     });
     setStrictSetupOpen(figmaState === "strict");
     setStrictSetupTaskId("preview-active");
-    setStrictAllowedAppsDraft("Figma, VS Code, Notes");
-    setStrictAllowedSitesDraft("figma.com, github.com");
     setScreenPermissionStatus("granted");
+    setDesktopCapabilities({
+      screenshotStrictModeAvailable: true,
+      screenRecordingPermissionStatus: "granted",
+      appStoreBuild: false,
+    });
+    setStrictIntroState({
+      consentChecked: true,
+      error: null,
+      submitting: false,
+      backendMessage: "Beta access enabled. Screenshots are analyzed and then discarded.",
+    });
     setHoverHint(null);
     setMusicOpen(figmaState === "music");
     setMusicAutoplayNonce(0);
@@ -685,7 +787,7 @@ function MainApp() {
       },
       "hint-strict": {
         title: "Strict mode",
-        body: "Checks the frontmost app and site against your allowlist and escalates if you drift.",
+        body: "Captures periodic screenshots during a focus block, checks them with Gemini, and escalates if you drift.",
       },
       "hint-history": {
         title: "History",
@@ -723,10 +825,83 @@ function MainApp() {
     if (!window.desktopBridge) {
       return;
     }
-    void window.desktopBridge.getMiniAlwaysOnTop().then((isPinned) => {
+    void Promise.all([
+      window.desktopBridge.getMiniAlwaysOnTop(),
+      window.desktopBridge.getDesktopCapabilities(),
+    ]).then(([isPinned, capabilities]) => {
       setPrefs((current) => ({ ...current, alwaysOnTop: isPinned }));
+      setDesktopCapabilities(capabilities);
+      setScreenPermissionStatus(capabilities.screenRecordingPermissionStatus);
     });
-    void window.desktopBridge.getScreenPermissionStatus().then(setScreenPermissionStatus);
+  }, []);
+
+  useEffect(() => {
+    if (!supabaseClient) {
+      return;
+    }
+
+    void supabaseClient.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        setAuthError(error.message);
+        return;
+      }
+      setAuthSession(data.session);
+      if (data.session?.user.email) {
+        setAuthEmail(data.session.user.email);
+      }
+    });
+
+    const {
+      data: { subscription },
+    } = supabaseClient.auth.onAuthStateChange((_event, session) => {
+      setAuthSession(session);
+      if (session?.user.email) {
+        setAuthEmail(session.user.email);
+      }
+      setAuthError(null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!hasStrictVisionBackend()) {
+      setStrictBackendHealth({
+        reachable: false,
+        message: "Tempo backend URL is not configured.",
+      });
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimer: number | null = null;
+
+    const checkHealth = async () => {
+      const health = await getStrictVisionBackendHealth();
+      if (cancelled) {
+        return;
+      }
+
+      setStrictBackendHealth({
+        reachable: health.ok,
+        message: health.message,
+      });
+
+      if (!health.ok) {
+        retryTimer = window.setTimeout(() => {
+          void checkHealth();
+        }, 1500);
+      }
+    };
+
+    void checkHealth();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -806,6 +981,8 @@ function MainApp() {
           progressRatio,
           phase,
           pinned: prefs.alwaysOnTop,
+          themeMode: prefs.themeMode,
+          appearance: resolvedAppearance,
         }
       : {
           active: false,
@@ -815,6 +992,8 @@ function MainApp() {
           progressRatio: 0,
           phase: "idle",
           pinned: prefs.alwaysOnTop,
+          themeMode: prefs.themeMode,
+          appearance: resolvedAppearance,
         };
 
     window.desktopBridge.updateMiniState(nextState);
@@ -823,7 +1002,9 @@ function MainApp() {
     activeTask,
     phase,
     prefs.alwaysOnTop,
+    prefs.themeMode,
     progressRatio,
+    resolvedAppearance,
   ]);
 
   useEffect(() => {
@@ -878,59 +1059,145 @@ function MainApp() {
   }, [activeSession, activeTask, phase, prefs.notificationsEnabled, timeline]);
 
   useEffect(() => {
-    if (phase !== "running" || !activeSession || !activeSession.strictModeEnabled || !window.desktopBridge) {
-      strictViolation.current = { consecutive: 0, lastMessageAt: 0 };
+    if (
+      phase !== "running" ||
+      !activeSession ||
+      !activeTask ||
+      !activeSession.strictModeEnabled ||
+      activeSession.strictModeKind !== "vision" ||
+      !activeSession.strictSessionId ||
+      !window.desktopBridge ||
+      !strictVisionReady
+    ) {
+      strictViolation.current = { consecutive: 0, lastMessageAt: 0, recentClassifications: [] };
       return;
     }
 
-    const checkInterval = window.setInterval(async () => {
-      const context = await window.desktopBridge?.getActiveContext();
-      if (!context) {
-        return;
+    if (screenPermissionStatus !== "granted") {
+      setLastPrompt("Strict beta is paused until Screen Recording permission is granted.");
+      return;
+    }
+
+    let cancelled = false;
+    const delayMs = Math.max(
+      8_000,
+      activeSession.analysisCooldownUntil > Date.now()
+        ? activeSession.analysisCooldownUntil - Date.now()
+        : 8_000,
+    );
+
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const token = await getAccessToken(authSession);
+
+        const capture = await window.desktopBridge?.captureVisionFrame({
+          maxDimension: 1280,
+          format: "jpeg",
+          quality: 0.72,
+        });
+
+        if (!capture || cancelled) {
+          return;
+        }
+
+        const strictSessionId = activeSession.strictSessionId;
+        if (!strictSessionId) {
+          return;
+        }
+
+        const analysis = await analyzeStrictVisionFrame(token, {
+          sessionId: strictSessionId,
+          taskTitle: activeTask.title,
+          taskIntention: activeTask.title,
+          imageBase64: capture.imageBase64,
+          mimeType: capture.mimeType,
+          recentClassifications: strictViolation.current.recentClassifications,
+          enforcementLevel: strictViolation.current.consecutive,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        strictViolation.current.recentClassifications = [
+          ...strictViolation.current.recentClassifications.slice(-2),
+          analysis.classification,
+        ];
+
+        setActiveSession((current) =>
+          current && current.strictSessionId === activeSession.strictSessionId
+            ? {
+                ...current,
+                lastAnalysisResult: analysis,
+                analysisCooldownUntil: Date.now() + Math.max(8_000, analysis.nextRecommendedCaptureDelayMs),
+              }
+            : current,
+        );
+
+        const confidenceLabel = formatConfidenceLabel(analysis.confidence);
+
+        if (analysis.classification === "on_task") {
+          strictViolation.current = {
+            consecutive: 0,
+            lastMessageAt: Date.now(),
+            recentClassifications: strictViolation.current.recentClassifications,
+          };
+          setLastPrompt(analysis.suggestedNudge || `On track. ${activeTask.title} is still the focus.`);
+          return;
+        }
+
+        if (analysis.classification === "uncertain") {
+          setLastPrompt(`Strict beta: ${analysis.reason} (${confidenceLabel}).`);
+          return;
+        }
+
+        const nextConsecutive = strictViolation.current.consecutive + 1;
+        strictViolation.current = {
+          consecutive: nextConsecutive,
+          lastMessageAt: Date.now(),
+          recentClassifications: strictViolation.current.recentClassifications,
+        };
+
+        const message = `${analysis.reason} (${confidenceLabel}). ${analysis.suggestedNudge}`;
+        setLastPrompt(`Strict beta: ${message}`);
+
+        if (prefs.notificationsEnabled && "Notification" in window) {
+          new Notification("Strict beta", {
+            body: message,
+            silent: nextConsecutive === 1,
+          });
+        }
+
+        void sendStrictVisionEvent(token, {
+          sessionId: strictSessionId,
+          eventType: nextConsecutive >= 2 ? "strict_alert" : "strict_warning",
+          taskTitle: activeTask.title,
+          detail: analysis.reason,
+        }).catch(() => {});
+
+        if (nextConsecutive >= 2) {
+          playAlertTone(nextConsecutive);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Strict beta analysis failed.";
+          setLastPrompt(`Strict beta: ${message}`);
+        }
       }
+    }, delayMs);
 
-      const appOk =
-        activeSession.allowedApps.length === 0 ||
-        matchAny(`${context.appName} ${context.windowTitle}`, activeSession.allowedApps);
-
-      let siteOk = true;
-      if (BROWSER_APPS.has(context.appName) && activeSession.allowedSites.length > 0) {
-        const source = `${context.url} ${context.windowTitle}`;
-        siteOk = matchAny(source, activeSession.allowedSites);
-      }
-
-      const isAllowed = BROWSER_APPS.has(context.appName)
-        ? siteOk || appOk
-        : appOk;
-
-      if (isAllowed) {
-        strictViolation.current = { consecutive: 0, lastMessageAt: 0 };
-        return;
-      }
-
-      const next = {
-        consecutive: strictViolation.current.consecutive + 1,
-        lastMessageAt: Date.now(),
-      };
-      strictViolation.current = next;
-
-      const message =
-        next.consecutive === 1
-          ? "Strict mode: return to the allowed app or site."
-          : "Strict mode: you are still outside the allowed app or site.";
-      setLastPrompt(message);
-
-      if (prefs.notificationsEnabled && "Notification" in window) {
-        new Notification("Strict mode", { body: message, silent: next.consecutive === 1 });
-      }
-
-      if (next.consecutive >= 2) {
-        playAlertTone(next.consecutive);
-      }
-    }, 8000);
-
-    return () => window.clearInterval(checkInterval);
-  }, [activeSession, phase, prefs.notificationsEnabled]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    activeSession,
+    activeTask,
+    phase,
+    prefs.notificationsEnabled,
+    screenPermissionStatus,
+    strictVisionReady,
+  ]);
 
   useEffect(() => {
     if (phase !== "completed" || !activeSession || !activeTask) {
@@ -1120,6 +1387,30 @@ function MainApp() {
     setTimeline([]);
     pausedRemaining.current = 0;
     firedMarkers.current = new Set();
+
+    if (
+      activeSession.strictModeEnabled &&
+      activeSession.strictModeKind === "vision" &&
+      activeSession.strictSessionId &&
+      authSession
+    ) {
+      const strictSessionId = activeSession.strictSessionId;
+      void (async () => {
+        try {
+          const token = await getAccessToken(authSession);
+          if (!token) {
+            return;
+          }
+          await sendStrictVisionEvent(token, {
+            sessionId: strictSessionId,
+            eventType: status === "completed" ? "session_completed" : "session_interrupted",
+            taskTitle: activeTask.title,
+          });
+        } catch {
+          // Ignore strict beta session end telemetry failures.
+        }
+      })();
+    }
   }
 
   function startTask(taskId: string, strictConfig?: StrictModeSessionConfig) {
@@ -1145,8 +1436,10 @@ function MainApp() {
       plannedSeconds: task.plannedSeconds,
       secondsLeft: task.plannedSeconds,
       strictModeEnabled: strictConfig?.enabled ?? false,
-      allowedApps: strictConfig?.allowedApps ?? [],
-      allowedSites: strictConfig?.allowedSites ?? [],
+      strictModeKind: strictConfig?.kind ?? "vision",
+      strictSessionId: strictConfig?.sessionId ?? null,
+      lastAnalysisResult: null,
+      analysisCooldownUntil: Date.now() + 8_000,
     };
 
     setActiveSession(nextSession);
@@ -1161,6 +1454,53 @@ function MainApp() {
       setMusicOpen(true);
       setMusicAutoplayNonce((current) => current + 1);
     }
+  }
+
+  async function signInToStrictBeta() {
+    if (!supabaseClient) {
+      setAuthError("Supabase is not configured for this build.");
+      return;
+    }
+    if (!authEmail.trim() || !authPassword.trim()) {
+      setAuthError("Enter your email and password to use strict beta.");
+      return;
+    }
+
+    setAuthBusy(true);
+    setAuthError(null);
+    const { error } = await supabaseClient.auth.signInWithPassword({
+      email: authEmail.trim(),
+      password: authPassword,
+    });
+    setAuthBusy(false);
+    if (error) {
+      setAuthError(error.message);
+    }
+  }
+
+  async function signOutOfStrictBeta() {
+    if (!supabaseClient) {
+      return;
+    }
+    await supabaseClient.auth.signOut();
+    setAuthPassword("");
+  }
+
+  async function launchStrictSetup(taskId: string) {
+    const status = await window.desktopBridge?.getScreenPermissionStatus();
+    const resolvedStatus = status ?? "unknown";
+    setScreenPermissionStatus(resolvedStatus);
+    setStrictSetupTaskId(taskId);
+    setStrictIntroState({
+      consentChecked: false,
+      error: null,
+      submitting: false,
+      backendMessage: strictVisionReady
+        ? "Beta mode analyzes screenshots while strict mode is running, then discards them."
+        : strictBackendHealth.message ??
+          "Strict beta is unavailable until desktop capture and the Tempo backend are configured.",
+    });
+    setStrictSetupOpen(true);
   }
 
   async function handleStartFromInput() {
@@ -1184,12 +1524,7 @@ function MainApp() {
     setInputError(null);
 
     if (prefs.strictModeDefault) {
-      const status = await window.desktopBridge?.getScreenPermissionStatus();
-      setScreenPermissionStatus(status ?? "unknown");
-      setStrictAllowedAppsDraft(prefs.recentAllowedApps.join(", "));
-      setStrictAllowedSitesDraft(prefs.recentAllowedSites.join(", "));
-      setStrictSetupTaskId(newTask.id);
-      setStrictSetupOpen(true);
+      await launchStrictSetup(newTask.id);
       return;
     }
 
@@ -1201,31 +1536,79 @@ function MainApp() {
       startTask(taskId);
       return;
     }
-    const status = await window.desktopBridge?.getScreenPermissionStatus();
-    setScreenPermissionStatus(status ?? "unknown");
-    setStrictAllowedAppsDraft(prefs.recentAllowedApps.join(", "));
-    setStrictAllowedSitesDraft(prefs.recentAllowedSites.join(", "));
-    setStrictSetupTaskId(taskId);
-    setStrictSetupOpen(true);
+    await launchStrictSetup(taskId);
   }
 
-  function confirmStrictSetup() {
+  async function confirmStrictSetup() {
     if (!strictSetupTaskId) {
       return;
     }
-    const allowedApps = parseCsvList(strictAllowedAppsDraft);
-    const allowedSites = parseCsvList(strictAllowedSitesDraft);
-    updatePrefs({
-      recentAllowedApps: allowedApps,
-      recentAllowedSites: allowedSites,
-    });
-    setStrictSetupOpen(false);
-    startTask(strictSetupTaskId, {
-      enabled: true,
-      allowedApps,
-      allowedSites,
-    });
-    setStrictSetupTaskId(null);
+
+    if (!strictVisionReady) {
+      setStrictIntroState((current) => ({
+        ...current,
+        error:
+          strictBackendHealth.message ??
+          "Strict beta is unavailable in this build. Configure Supabase, the Tempo API, and the macOS helper first.",
+      }));
+      return;
+    }
+
+    if (screenPermissionStatus !== "granted") {
+      setStrictIntroState((current) => ({
+        ...current,
+        error: "Grant Screen Recording permission before starting strict beta.",
+      }));
+      return;
+    }
+
+    if (!strictIntroState.consentChecked) {
+      setStrictIntroState((current) => ({
+        ...current,
+        error: "You need to explicitly opt in to screenshot analysis for strict beta.",
+      }));
+      return;
+    }
+
+    try {
+      setStrictIntroState((current) => ({ ...current, submitting: true, error: null }));
+      const token = await getAccessToken(authSession);
+      const task = tasks.find((item) => item.id === strictSetupTaskId);
+      if (!task) {
+        throw new Error("Unable to create the strict beta session.");
+      }
+
+      const session = await createStrictVisionSession(token, task.title, task.title);
+      if (!session.enabled || !session.sessionId) {
+        setStrictIntroState((current) => ({
+          ...current,
+          submitting: false,
+          backendMessage: session.message,
+          error: session.message,
+        }));
+        return;
+      }
+
+      setStrictSetupOpen(false);
+      startTask(strictSetupTaskId, {
+        enabled: true,
+        kind: "vision",
+        sessionId: session.sessionId,
+      });
+      setStrictIntroState({
+        consentChecked: false,
+        error: null,
+        submitting: false,
+        backendMessage: session.message,
+      });
+      setStrictSetupTaskId(null);
+    } catch (error) {
+      setStrictIntroState((current) => ({
+        ...current,
+        submitting: false,
+        error: error instanceof Error ? error.message : "Unable to start strict beta.",
+      }));
+    }
   }
 
   function pauseSession() {
@@ -1419,18 +1802,12 @@ function MainApp() {
         className={[
           "lucid-shell",
           musicOpen && soundCloudUrl ? "has-music-footer" : "",
-          prefs.themeMode === "mist" ? "theme-mist" : "",
         ]
           .filter(Boolean)
           .join(" ")}
         ref={widgetRef}
       >
         <header className="lucid-header" onPointerDown={beginDrag}>
-          <div className="window-dots" aria-hidden="true">
-            <span />
-            <span />
-            <span />
-          </div>
           <h1>Tempo</h1>
         </header>
 
@@ -1467,12 +1844,17 @@ function MainApp() {
           </button>
           <button
             className={prefs.strictModeDefault ? "icon-chip dock-chip is-active no-drag" : "icon-chip dock-chip no-drag"}
+            disabled={!strictVisionReady}
             onClick={() => updatePrefs({ strictModeDefault: !prefs.strictModeDefault })}
             onPointerEnter={(event) =>
               queueHoverHint(
                 event,
                 "Strict mode",
-                "Checks the frontmost app and site against your allowlist and escalates if you drift.",
+                strictVisionReady
+                  ? "Beta screenshot analysis checks whether you are staying on task and escalates if you drift."
+                  : desktopCapabilities.appStoreBuild
+                    ? "Strict beta is unavailable in the App Store build."
+                    : "Configure Supabase auth, the Tempo API, and the macOS capture helper to enable strict beta.",
               )
             }
             onPointerLeave={clearHoverHint}
@@ -1557,7 +1939,7 @@ function MainApp() {
               <div className="notification-mark">RT</div>
               <div className="notification-copy">
                 <strong>Tempo</strong>
-                <span>Strict mode: return to Figma, VS Code, or your allowed sites.</span>
+                <span>Strict beta: this looks off-task. Return to the onboarding draft.</span>
               </div>
             </article>
           </section>
@@ -1575,7 +1957,7 @@ function MainApp() {
             </article>
             <article className="hover-hint gallery-hint" style={{ left: "338px", top: "52px" }}>
               <strong>Strict mode</strong>
-              <span>Checks the frontmost app and site against your allowlist and escalates if you drift.</span>
+              <span>Analyzes periodic screenshots during a focus block and escalates if you drift.</span>
             </article>
             <article className="hover-hint gallery-hint" style={{ left: "464px", top: "52px" }}>
               <strong>History</strong>
@@ -1626,6 +2008,11 @@ function MainApp() {
               </p>
               <p className="focus-strip-task">{activeTask.title}</p>
               <p className="focus-strip-nudge">{lastPrompt}</p>
+              {activeSession.strictModeEnabled && activeSession.lastAnalysisResult && (
+                <p className="focus-strip-vision">
+                  Strict beta: {activeSession.lastAnalysisResult.reason} ({formatConfidenceLabel(activeSession.lastAnalysisResult.confidence)})
+                </p>
+              )}
             </div>
             <div className="focus-strip-meta">
               <strong>{formatTime(activeSession.secondsLeft)}</strong>
@@ -1723,7 +2110,31 @@ function MainApp() {
         {showSettings && (
           <section className="settings-panel floating-drawer">
             <div className="settings-group">
-              <span className="settings-label">App color</span>
+              <span className="settings-label">Appearance</span>
+              <div className="settings-segment">
+                <button
+                  className={prefs.appearanceMode === "auto" ? "mini-chip is-active" : "mini-chip"}
+                  onClick={() => updatePrefs({ appearanceMode: "auto" })}
+                >
+                  Auto
+                </button>
+                <button
+                  className={prefs.appearanceMode === "light" ? "mini-chip is-active" : "mini-chip"}
+                  onClick={() => updatePrefs({ appearanceMode: "light" })}
+                >
+                  Light
+                </button>
+                <button
+                  className={prefs.appearanceMode === "dark" ? "mini-chip is-active" : "mini-chip"}
+                  onClick={() => updatePrefs({ appearanceMode: "dark" })}
+                >
+                  Dark
+                </button>
+              </div>
+            </div>
+
+            <div className="settings-group">
+              <span className="settings-label">Palette</span>
               <div className="settings-segment">
                 <button
                   className={prefs.themeMode === "mono" ? "mini-chip is-active" : "mini-chip"}
@@ -1763,13 +2174,17 @@ function MainApp() {
         {strictSetupOpen && (
           <section className="overlay">
             <article className="modal">
-              <h3>Strict mode setup</h3>
+              <h3>Strict beta setup</h3>
               <p>
-                Strict mode checks whether you stay in the allowed apps or sites. No screenshots or
-                detailed logs are saved.
+                Strict beta captures periodic screenshots while your focus session is active, sends
+                them to Tempo for Gemini analysis, and discards them after analysis.
               </p>
               <p>Screen Recording permission: {screenPermissionStatus}</p>
+              <p>{strictIntroState.backendMessage ?? "No screenshots are retained by default."}</p>
               <div className="modal-actions">
+                <button className="icon-chip" onClick={() => void window.desktopBridge?.requestScreenPermission().then(setScreenPermissionStatus)}>
+                  Request Access
+                </button>
                 <button className="icon-chip" onClick={() => void window.desktopBridge?.openScreenPermissionSettings()}>
                   Open Settings
                 </button>
@@ -1777,28 +2192,68 @@ function MainApp() {
                   Refresh
                 </button>
               </div>
-              <label>
-                Allowed apps or window titles
+
+              {!authSession ? (
+                <>
+                  <p className="modal-note">
+                    Sign-in is optional right now. You can start strict beta as a guest, or sign in
+                    if you want to test the account flow too.
+                  </p>
+                  <label>
+                    Tempo beta email
+                    <input
+                      value={authEmail}
+                      onChange={(event) => setAuthEmail(event.target.value)}
+                      placeholder="you@example.com"
+                    />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      value={authPassword}
+                      onChange={(event) => setAuthPassword(event.target.value)}
+                      placeholder="Your password"
+                    />
+                  </label>
+                  <div className="modal-actions">
+                    <button className="icon-chip is-active" onClick={() => void signInToStrictBeta()} disabled={authBusy}>
+                      {authBusy ? "Signing in..." : "Sign in"}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="strict-session-summary">
+                  <strong>{authSession.user.email}</strong>
+                  <span>Strict beta uses your account so Tempo can rate-limit and protect Gemini usage.</span>
+                  <button className="mini-chip" onClick={() => void signOutOfStrictBeta()}>
+                    Sign out
+                  </button>
+                </div>
+              )}
+
+              <label className="strict-consent">
                 <input
-                  value={strictAllowedAppsDraft}
-                  onChange={(event) => setStrictAllowedAppsDraft(event.target.value)}
-                  placeholder="Figma, VS Code, Notes"
+                  type="checkbox"
+                  checked={strictIntroState.consentChecked}
+                  onChange={(event) =>
+                    setStrictIntroState((current) => ({
+                      ...current,
+                      consentChecked: event.target.checked,
+                      error: null,
+                    }))
+                  }
                 />
+                <span>I understand Tempo will analyze screenshots during this strict beta session and will not retain them by default.</span>
               </label>
-              <label>
-                Allowed sites
-                <input
-                  value={strictAllowedSitesDraft}
-                  onChange={(event) => setStrictAllowedSitesDraft(event.target.value)}
-                  placeholder="docs.google.com, github.com"
-                />
-              </label>
+              {authError && <p className="modal-note">{authError}</p>}
+              {strictIntroState.error && <p className="modal-note">{strictIntroState.error}</p>}
               <div className="modal-actions">
                 <button className="icon-chip" onClick={() => setStrictSetupOpen(false)}>
                   Cancel
                 </button>
-                <button className="icon-chip is-active" onClick={confirmStrictSetup}>
-                  Start strict session
+                <button className="icon-chip is-active" onClick={() => void confirmStrictSetup()} disabled={strictIntroState.submitting}>
+                  {strictIntroState.submitting ? "Starting..." : "Start strict beta"}
                 </button>
               </div>
             </article>
@@ -1906,6 +2361,8 @@ function MiniApp() {
     progressRatio: 0,
     phase: "idle",
     pinned: true,
+    themeMode: "mono",
+    appearance: "light",
   });
 
   useEffect(() => {
@@ -1929,6 +2386,15 @@ function MiniApp() {
       setMiniState(state);
     });
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("theme-mist", miniState.themeMode === "mist");
+    document.body.classList.toggle("theme-dark", miniState.appearance === "dark");
+    document.body.classList.add("mini-window");
+    return () => {
+      document.body.classList.remove("theme-mist", "theme-dark", "mini-window");
+    };
+  }, [miniState.appearance, miniState.themeMode]);
 
   const ringRadius = 72;
   const ringCircumference = 2 * Math.PI * ringRadius;
@@ -1966,6 +2432,7 @@ function MiniApp() {
         <div className="mini-actions">
           <button
             className="mini-fab"
+            aria-label={miniState.phase === "paused" ? "Resume timer" : "Pause timer"}
             onClick={() =>
               sendMiniControl(miniState.phase === "paused" ? "resume" : "pause")
             }
@@ -1975,14 +2442,19 @@ function MiniApp() {
               kind={miniState.phase === "paused" ? "play" : "pause"}
             />
           </button>
-          <button className="mini-fab mini-fab-done" onClick={() => sendMiniControl("done")}>
+          <button
+            className="mini-fab mini-fab-done"
+            aria-label="Mark session done"
+            onClick={() => sendMiniControl("done")}
+          >
             <DockGlyph className="mini-fab-icon" kind="done" />
           </button>
-          <button className="mini-fab" onClick={() => sendMiniControl("stop")}>
+          <button className="mini-fab" aria-label="Stop timer" onClick={() => sendMiniControl("stop")}>
             <DockGlyph className="mini-fab-icon" kind="stop" />
           </button>
           <button
             className={miniState.pinned ? "mini-fab is-active" : "mini-fab"}
+            aria-label={miniState.pinned ? "Unpin mini timer" : "Pin mini timer"}
             onClick={() => sendMiniControl("toggle-pin")}
           >
             <DockGlyph className="mini-fab-icon" kind="pin" />
